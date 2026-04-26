@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 project (2DGame VERSION 1.0)
 
-add_subdirectory(internal/SDL EXCLUDE_FROM_ALL)
+add_subdirectory(include/SDL EXCLUDE_FROM_ALL)
 
 add_executable(${PROJECT_NAME} src/main.c src/game.c)
 target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 m)
