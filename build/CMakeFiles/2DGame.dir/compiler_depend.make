@@ -21,6 +21,7 @@ CMakeFiles/2DGame.dir/src/game.c.o: /home/aadam/Desktop/Projects/2DGame/src/game
   /usr/include/SDL2/SDL_haptic.h \
   /usr/include/SDL2/SDL_hidapi.h \
   /usr/include/SDL2/SDL_hints.h \
+  /usr/include/SDL2/SDL_image.h \
   /usr/include/SDL2/SDL_joystick.h \
   /usr/include/SDL2/SDL_keyboard.h \
   /usr/include/SDL2/SDL_keycode.h \
@@ -49,6 +50,7 @@ CMakeFiles/2DGame.dir/src/game.c.o: /home/aadam/Desktop/Projects/2DGame/src/game
   /usr/include/SDL2/SDL_thread.h \
   /usr/include/SDL2/SDL_timer.h \
   /usr/include/SDL2/SDL_touch.h \
+  /usr/include/SDL2/SDL_ttf.h \
   /usr/include/SDL2/SDL_version.h \
   /usr/include/SDL2/SDL_video.h \
   /usr/include/SDL2/begin_code.h \
@@ -247,6 +249,7 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
   /usr/include/SDL2/SDL_haptic.h \
   /usr/include/SDL2/SDL_hidapi.h \
   /usr/include/SDL2/SDL_hints.h \
+  /usr/include/SDL2/SDL_image.h \
   /usr/include/SDL2/SDL_joystick.h \
   /usr/include/SDL2/SDL_keyboard.h \
   /usr/include/SDL2/SDL_keycode.h \
@@ -275,6 +278,7 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
   /usr/include/SDL2/SDL_thread.h \
   /usr/include/SDL2/SDL_timer.h \
   /usr/include/SDL2/SDL_touch.h \
+  /usr/include/SDL2/SDL_ttf.h \
   /usr/include/SDL2/SDL_version.h \
   /usr/include/SDL2/SDL_video.h \
   /usr/include/SDL2/begin_code.h \
@@ -530,12 +534,6 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/avx512vlbwintrin.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/13/include/rdseedintrin.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/13/include/lwpintrin.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/13/include/avx512vbmivlintrin.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/13/include/avx512vbmiintrin.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/shaintrin.h:
@@ -572,10 +570,6 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/amxbf16intrin.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/13/include/avxneconvertintrin.h:
-
-/usr/include/inttypes.h:
-
 /usr/include/features-time64.h:
 
 /usr/include/SDL2/SDL_gesture.h:
@@ -586,13 +580,9 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/include/x86_64-linux-gnu/bits/fp-logb.h:
 
-/usr/include/alloca.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/13/include/avx5124fmapsintrin.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h:
-
-/usr/include/math.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/cetintrin.h:
 
@@ -640,6 +630,14 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/include/SDL2/SDL_keycode.h:
 
+/usr/lib/gcc/x86_64-linux-gnu/13/include/rdseedintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/13/include/lwpintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/13/include/avx512vbmivlintrin.h:
+
+/usr/include/SDL2/SDL_ttf.h:
+
 /usr/include/SDL2/SDL_pixels.h:
 
 /usr/include/SDL2/SDL_filesystem.h:
@@ -666,6 +664,10 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/include/SDL2/SDL_audio.h:
 
+/usr/include/alloca.h:
+
+/usr/include/SDL2/SDL_image.h:
+
 /usr/include/x86_64-linux-gnu/sys/types.h:
 
 /usr/include/SDL2/SDL_main.h:
@@ -686,15 +688,21 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/bmi2intrin.h:
 
-/usr/include/x86_64-linux-gnu/bits/mathcalls.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/13/include/adxintrin.h:
+
+/usr/include/x86_64-linux-gnu/bits/mathcalls.h:
 
 /home/aadam/Desktop/Projects/2DGame/include/game.h:
 
 /usr/include/SDL2/SDL_thread.h:
 
 /usr/include/SDL2/SDL_metal.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdint-uintn.h:
+
+/usr/include/x86_64-linux-gnu/sys/select.h:
+
+/home/aadam/Desktop/Projects/2DGame/src/game.c:
 
 /usr/lib/gcc/x86_64-linux-gnu/13/include/fmaintrin.h:
 
@@ -751,6 +759,12 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 /usr/lib/gcc/x86_64-linux-gnu/13/include/avx512fp16vlintrin.h:
 
 /usr/include/SDL2/SDL_log.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/13/include/avxneconvertintrin.h:
+
+/usr/include/inttypes.h:
+
+/usr/include/math.h:
 
 /usr/include/stdc-predef.h:
 
@@ -899,9 +913,3 @@ CMakeFiles/2DGame.dir/src/main.c.o: /home/aadam/Desktop/Projects/2DGame/src/main
 /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/wchar.h:
-
-/usr/include/x86_64-linux-gnu/bits/stdint-uintn.h:
-
-/home/aadam/Desktop/Projects/2DGame/src/game.c:
-
-/usr/include/x86_64-linux-gnu/sys/select.h:

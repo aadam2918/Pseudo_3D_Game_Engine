@@ -4,14 +4,30 @@
 #include <SDL2/SDL.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <SDL2/SDL_image.h>
+#include <SDL2/SDL_ttf.h>
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
 
 extern SDL_Window* window;
 extern SDL_Renderer* renderer;
+extern SDL_Surface* screen;
+extern SDL_Surface* gun_surface;
+extern SDL_Surface* crosshair_s;
+extern SDL_Texture* crosshair;
+extern SDL_Texture* gun;
+extern SDL_Surface* health;
+extern SDL_Surface* ammo;
+extern SDL_Texture* h_t;
+extern SDL_Texture* a_t;
+extern TTF_Font* arial;
+extern SDL_Surface* enemy_surface;
+extern SDL_Texture* enemy_t;
 extern SDL_Event e;
-extern SDL_Rect player;
 
 typedef struct Game Game;
 
