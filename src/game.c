@@ -6,7 +6,7 @@ struct Game {
     SDL_bool is_running;
 };
 
-const float FOV = 60 * (PI/180);
+const float FOV = (PI/3);
 float playerX;
 float playerY;
 float playerAngle;
@@ -61,7 +61,7 @@ void game_destroy(Game* game) {
     if(renderer) SDL_DestroyRenderer(renderer);
     if(window) SDL_DestroyWindow(window);
     if(gun_surface) SDL_FreeSurface(gun_surface);
-    if(arial) free(arial);
+    if(arial) TTF_Quit();
     if(gun) SDL_DestroyTexture(gun);
     SDL_Quit();
 }
@@ -72,40 +72,38 @@ void game_init(Game* game) {
     game->is_running = SDL_TRUE;
     
     if(SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("SDL_Init Error: %s\n", SDL_GetError());
+        printf("Error initialising SDL: %s\n", SDL_GetError());
         game->is_running = SDL_FALSE;
         return;
     }
 
     if(IMG_Init(IMG_INIT_PNG) < 0) {
-        printf("IMG_Init ERROR: %s\n", IMG_GetError());
+        printf("Error initalising IMG: %s\n", IMG_GetError());
         game->is_running = SDL_FALSE;
         return;
     }
 
     if(TTF_Init() != 0) {
-        printf("TTF_Init Error: %s\n", TTF_GetError());
+        printf("Error initialising TTF %s\n", TTF_GetError());
         game->is_running = SDL_FALSE;
         return;
     }
     
-    window = SDL_CreateWindow("Pseudo 3D Game", 
-                              SDL_WINDOWPOS_CENTERED, 
-                              SDL_WINDOWPOS_CENTERED,
-                              SCREEN_WIDTH, SCREEN_HEIGHT, 
-                              SDL_WINDOW_SHOWN);
+    window = SDL_CreateWindow("Raja Royale 2027", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if(!window) {
-        printf("Window Error: %s\n", SDL_GetError());
+        printf("Error creating window: %s\n", SDL_GetError());
         game->is_running = SDL_FALSE;
         return;
     }
     
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if(!renderer) {
-        printf("Renderer Error: %s\n", SDL_GetError());
+        printf("Error creating renderer: %s\n", SDL_GetError());
         game->is_running = SDL_FALSE;
         return;
     }
+
+    SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
@@ -125,7 +123,7 @@ void game_init(Game* game) {
 
     enemy_surface = IMG_Load("util/enemy.png");
     if(!enemy_surface) {
-        printf("Failed to load enemy sprite: %s\n", IMG_GetError());
+        printf("Error loading enemy sprite: %s\n", IMG_GetError());
     }
     enemy_t = SDL_CreateTextureFromSurface(renderer, enemy_surface);
     SDL_FreeSurface(enemy_surface);
@@ -133,7 +131,7 @@ void game_init(Game* game) {
 
     gun_surface = IMG_Load("util/gun.png");
     if(!gun_surface) {
-        printf("Failed to load gun: %s\n", IMG_GetError());
+        printf("Error loading gun: %s\n", IMG_GetError());
     }
     gun = SDL_CreateTextureFromSurface(renderer, gun_surface);
     SDL_FreeSurface(gun_surface);
@@ -141,7 +139,7 @@ void game_init(Game* game) {
 
     crosshair_s = IMG_Load("util/Crosshair.png");
     if(!crosshair_s) {
-        printf("Failed to load crosshair: %s\n", IMG_GetError());
+        printf("Error loading crosshair: %s\n", IMG_GetError());
     }
     crosshair = SDL_CreateTextureFromSurface(renderer, crosshair_s);
     SDL_FreeSurface(crosshair_s);
@@ -150,7 +148,7 @@ void game_init(Game* game) {
     arial = TTF_OpenFont("util/arial.ttf", 100);
 
     if(!arial) {
-        printf("Font not loaded, cannot render HUD text\n");
+        printf("Error loading Font\n");
         return;
     }   
 }
@@ -167,7 +165,7 @@ void game_update(Game* game) {
     SDL_Surface* hs = TTF_RenderText_Solid(arial, hbuf, tc);
     fflush(stdout);
     if(!hs) {
-        printf("TTF_RenderText_Solid failed: %s\n", TTF_GetError());
+        printf("Error loading health surface: %s\n", TTF_GetError());
     } else {
         if(h_t) SDL_DestroyTexture(h_t);
         h_t = SDL_CreateTextureFromSurface(renderer, hs);
@@ -176,7 +174,7 @@ void game_update(Game* game) {
     SDL_Surface* as = TTF_RenderText_Solid(arial, abuf, tc);
     fflush(stdout);
     if(!as) {
-        printf("TTF_RenderText_Solid failed: %s\n", TTF_GetError());
+        printf("Error loading ammo surface: %s\n", TTF_GetError());
     } else {
         if(a_t) SDL_DestroyTexture(a_t);
         a_t = SDL_CreateTextureFromSurface(renderer, as);
@@ -213,14 +211,27 @@ void game_update(Game* game) {
         }
     }
 
-    if(keys[SDL_SCANCODE_R] && pAmmo == 0) {
-        pAmmo += 10;
+    if(keys[SDL_SCANCODE_R] && pAmmo < pMaxAmmo) {
+        printf("Reloading gun.\n");
+        SDL_Delay(150);
+        printf("Reloading gun..\n");
+        SDL_Delay(150);
+        printf("Reloading gun...\n");
+        pAmmo = pMaxAmmo;
+        printf("Reloaded Gun!\n");
+    }
+
+    if(keys[SDL_SCANCODE_F] && pHealth < pMaxHealth) {
+        pHealth = pMaxHealth;
+        printf("Used medkit!\n");
     }
 
     float dx = enemyX - playerX;
     float dy = enemyY - playerY;
+
     float enemy_distance = sqrt(dx*dx + dy*dy);
     float enemyAngle = atan2(dy, dx) - playerAngle;
+
     while(enemyAngle > PI) enemyAngle -= 2*PI;
     while(enemyAngle < -PI) enemyAngle += 2*PI;
         
@@ -238,11 +249,11 @@ void game_update(Game* game) {
             pAmmo--;
             if(fabs(enemyAngle) < 0.1f && enemy_distance < 10.0f && enemy_distance < wallDistances[SCREEN_WIDTH/2]) {
                 enemyHealth -= 1.0f;
-                printf("Hit! Enemy health: %.0f\n", enemyHealth);
+                printf("Hit Enemy! Enemy health: %.0f\n", enemyHealth);
                 if(enemyHealth <= 0) {
                     enemyX = -999.0f;
                     enemyY = -999.0f;
-                    printf("Enemy dead\n");
+                    printf("Enemy dead!\n");
                 }
             }
         }
@@ -260,47 +271,47 @@ void game_update(Game* game) {
     SDL_RenderFillRect(renderer, &floor);
     
     for(int x = 0; x < SCREEN_WIDTH; x++) {
-        float rayAngle = (playerAngle - FOV/2) + ((float)x / SCREEN_WIDTH) * FOV;
+        float ray_angle = (playerAngle - FOV/2) + ((float)x / SCREEN_WIDTH) * FOV;
         
-        float rayDirX = cos(rayAngle);
-        float rayDirY = sin(rayAngle);
+        float ray_dir_x= cos(ray_angle);
+        float ray_dir_y = sin(ray_angle);
         
         int mapX = (int)playerX;
         int mapY = (int)playerY;
         
-        float deltaDistX = fabs(1.0f / rayDirX);
-        float deltaDistY = fabs(1.0f / rayDirY);
+        float delta_dist_x = fabs(1.0f / ray_dir_x);
+        float delta_dist_y = fabs(1.0f / ray_dir_y);
         
-        float sideDistX, sideDistY;
-        int stepX, stepY;
+        float side_dist_x, side_dist_y;
+        int step_x, step_y;
         
-        if(rayDirX < 0) {
-            stepX = -1;
-            sideDistX = (playerX - mapX) * deltaDistX;
+        if(ray_dir_x < 0) {
+            step_x = -1;
+            side_dist_x = (playerX - mapX) * delta_dist_x;
         } else {
-            stepX = 1;
-            sideDistX = (mapX + 1.0f - playerX) * deltaDistX;
+            step_x = 1;
+            side_dist_x = (mapX + 1.0f - playerX) * delta_dist_x;
         }
         
-        if(rayDirY < 0) {
-            stepY = -1;
-            sideDistY = (playerY - mapY) * deltaDistY;
+        if(ray_dir_y < 0) {
+            step_y = -1;
+            side_dist_y = (playerY - mapY) * delta_dist_y;
         } else {
-            stepY = 1;
-            sideDistY = (mapY + 1.0f - playerY) * deltaDistY;
+            step_y = 1;
+            side_dist_y = (mapY + 1.0f - playerY) * delta_dist_y;
         }
         
         int hit = 0;
         int side = 0;
         
         while(hit == 0) {
-            if(sideDistX < sideDistY) {
-                sideDistX += deltaDistX;
-                mapX += stepX;
+            if(side_dist_x < side_dist_y) {
+                side_dist_x += delta_dist_x;
+                mapX += step_x;
                 side = 0;
             } else {
-                sideDistY += deltaDistY;
-                mapY += stepY;
+                side_dist_y += delta_dist_y;
+                mapY += step_y;
                 side = 1;
             }
             if(mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) {
@@ -312,10 +323,10 @@ void game_update(Game* game) {
         }
         
         float distance;
-        if(side == 0) distance = (sideDistX - deltaDistX);
-        else distance = (sideDistY - deltaDistY);
+        if(side == 0) distance = (side_dist_x - delta_dist_x);
+        else distance = (side_dist_y - delta_dist_y);
         
-        distance = distance * cos(rayAngle - playerAngle);
+        distance = distance * cos(ray_angle - playerAngle);
         wallDistances[x] = distance;
         
         int wallHeight = (int)(SCREEN_HEIGHT / distance);
@@ -362,7 +373,7 @@ void game_update(Game* game) {
             lastDamageTime = now;
             if(pHealth <= 0) {
                 printf("You died\n");
-                pHealth = pMaxHealth; // use pMaxHealth instead of hardcoded 10
+                pHealth = pMaxHealth;
             }
     }
 }
@@ -373,11 +384,14 @@ void game_update(Game* game) {
     SDL_Rect crosshairRect = {SCREEN_WIDTH / 2 - 16, SCREEN_HEIGHT / 2 - 16, 32, 32};
     SDL_RenderCopy(renderer, crosshair, NULL, &crosshairRect);
 
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_Rect healthRect = {10, SCREEN_HEIGHT - 100, 100, 100};
     SDL_RenderCopy(renderer, h_t, NULL, &healthRect);
 
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_Rect ammoRect = {10, SCREEN_HEIGHT - 200, 100, 100};
     SDL_RenderCopy(renderer, a_t, NULL, &ammoRect);    
+
     SDL_RenderPresent(renderer);    
     SDL_Delay(16);
 }

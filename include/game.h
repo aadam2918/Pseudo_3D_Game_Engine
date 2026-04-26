@@ -10,8 +10,11 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
 
-#define SCREEN_WIDTH 640
+#define SCREEN_WIDTH  640
 #define SCREEN_HEIGHT 480
+#define WINDOW_SCALE  1.5
+#define WINDOW_WIDTH  (int)(SCREEN_WIDTH  * WINDOW_SCALE)
+#define WINDOW_HEIGHT (int)(SCREEN_HEIGHT * WINDOW_SCALE)
 
 extern SDL_Window* window;
 extern SDL_Renderer* renderer;
