@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 project (2DGame VERSION 1.0)
 
-find_package(glm CONFIG REQUIRED)
-
 add_executable(${PROJECT_NAME} src/main.c src/game.c)
 target_link_libraries(${PROJECT_NAME} PRIVATE SDL2 m)
 target_include_directories(${PROJECT_NAME} PUBLIC include/)
