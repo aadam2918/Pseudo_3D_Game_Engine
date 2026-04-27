@@ -1,1 +1,0 @@
-/usr/bin/gcc -g CMakeFiles/2DGame.dir/src/main.c.o CMakeFiles/2DGame.dir/src/game.c.o -o 2DGame  -lSDL2 -lSDL2_image -lSDL2_ttf -lm 

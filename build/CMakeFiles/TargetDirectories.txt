@@ -1,3 +1,0 @@
-/home/aadam/Desktop/Projects/2DGame/build/CMakeFiles/2DGame.dir
-/home/aadam/Desktop/Projects/2DGame/build/CMakeFiles/edit_cache.dir
-/home/aadam/Desktop/Projects/2DGame/build/CMakeFiles/rebuild_cache.dir
