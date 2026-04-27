@@ -1,20 +1,13 @@
 #include <game.h>
 
-#define PI                  3.14159265359f
-#define FOV                 (PI / 3)
-#define MOVE_SPEED          0.05f
-#define ROT_SPEED           0.001f
-#define DAMAGE_COOLDOWN_MS  1000
-#define SHOOT_ANGLE_TOL     0.1f
-#define SHOOT_MAX_DIST      10.0f
-#define ENEMY_SPRITE_SIZE   32
-#define FONT_SIZE           100
-#define INPUT_INTERVAL      697
-
 static const int MAP_WIDTH  = 8;
 static const int MAP_HEIGHT = 8;
+static const int MAP_SIZE = 8;
+static const int MAP_AREA = 64;
+static const int MAX_ENEMY_INSTANCES = 2;
+static const int MAX_ENTITY_INSTANCES = 2;
 
-static const int map[8][8] = {
+const int map[8][8] = {
     {1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 1, 1, 0, 0, 0, 1},
@@ -25,8 +18,8 @@ static const int map[8][8] = {
     {1, 1, 1, 1, 1, 1, 1, 1},
 };
 
-static const SDL_Color TEXT_COLOR = {0, 0, 0, 255};
 
+static const SDL_Color TEXT_COLOR = {0, 0, 0, 255};
 
 typedef struct {
     float x, y, angle;
@@ -37,6 +30,10 @@ typedef struct {
 typedef struct {
     float x, y, health;
 } Enemy;
+
+typedef struct {
+    float x, y;
+} Entity;
 
 typedef struct {
     SDL_Texture *gun;
@@ -74,13 +71,6 @@ static Mix_Music* loadMusic(const char* fileName) {
     m = Mix_LoadMUS(fileName);
     if(m == NULL) printf("Failed to load sound!\n");
     return m;
-}
-
-static Mix_Chunk* loadSound(const char* fileName) {
-    Mix_Chunk* s = NULL;
-    s = Mix_LoadMUS(fileName);
-    if(s == NULL) printf("Failed to load sound!\n");
-    return s;
 }
 
 static int playMusic(Mix_Music* m) {
@@ -140,15 +130,15 @@ static void update_hud_texture(SDL_Renderer *renderer, TTF_Font *font,
     *last_value = value;
 }
 
-static SDL_bool try_move(const Player *p, float dx, float dy) {
+static SDL_bool try_move(Game* game, const Player *p, float dx, float dy) {
     int nx = (int)(p->x + dx);
     int ny = (int)(p->y + dy);
     return map[ny][nx] != 1;
 }
 
-
-Game *game_create(void) {
+Game *game_create(SDL_Window* window) {
     Game *game = (Game *)calloc(1, sizeof(Game));
+    game->window = window;
     if (game) game->is_running = SDL_FALSE;
     return game;
 }
@@ -163,12 +153,6 @@ void game_destroy(Game *game) {
     if (game->hud.health_tex)   SDL_DestroyTexture(game->hud.health_tex);
     if (game->hud.ammo_tex)     SDL_DestroyTexture(game->hud.ammo_tex);
     if (game->renderer)         SDL_DestroyRenderer(game->renderer);
-    if (game->window)           SDL_DestroyWindow(game->window);
-
-    TTF_Quit();
-    IMG_Quit();
-    Mix_Quit();
-    SDL_Quit();
 
     free(game);
 }
@@ -176,33 +160,6 @@ void game_destroy(Game *game) {
 void game_init(Game *game) {
     if (!game) return;
 
-    (Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS,
-    2048) != 0) ?
-    printf("Error opening audio Channel\n") : (void)(0);
-
-                // 0xb00100000; 0xb00010000
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        printf("Error initialising SDL: %s\n", SDL_GetError());
-        return;
-    }
-    if((Mix_Init(MIX_INIT_OGG) & MIX_INIT_OGG) != MIX_INIT_OGG) {
-        printf("Error initialising MIXER: %s\n", Mix_GetError());
-    }
-    if (IMG_Init(IMG_INIT_PNG) < 0) {
-        printf("Error initialising IMG: %s\n", IMG_GetError());
-        return;
-    }
-    if (TTF_Init() != 0) {
-        printf("Error initialising TTF: %s\n", TTF_GetError());
-        return;
-    }
-
-    game->window = SDL_CreateWindow(
-        "Steichnenwolf",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-    );
     if (!game->window) {
         printf("Error creating window: %s\n", SDL_GetError());
         return;
@@ -263,22 +220,22 @@ static void handle_input(Game *game) {
     if (keys[SDL_SCANCODE_W]) {
         float dx = cos(p->angle) * MOVE_SPEED;
         float dy = sin(p->angle) * MOVE_SPEED;
-        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
+        if (try_move(game, p, dx, dy)) { p->x += dx; p->y += dy; }
     }
     if (keys[SDL_SCANCODE_S]) {
         float dx = -cos(p->angle) * MOVE_SPEED;
         float dy = -sin(p->angle) * MOVE_SPEED;
-        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
+        if (try_move(game, p, dx, dy)) { p->x += dx; p->y += dy; }
     }
     if (keys[SDL_SCANCODE_A]) {
         float dx = cos(p->angle - PI / 2.0f) * MOVE_SPEED;
         float dy = sin(p->angle - PI / 2.0f) * MOVE_SPEED;
-        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
+        if (try_move(game, p, dx, dy)) { p->x += dx; p->y += dy; }
     }
     if (keys[SDL_SCANCODE_D]) {
         float dx = cos(p->angle + PI / 2.0f) * MOVE_SPEED;
         float dy = sin(p->angle + PI / 2.0f) * MOVE_SPEED;
-        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
+        if (try_move(game, p, dx, dy)) { p->x += dx; p->y += dy; }
     }
 
     if (keys[SDL_SCANCODE_R] && p->ammo < p->max_ammo) {
