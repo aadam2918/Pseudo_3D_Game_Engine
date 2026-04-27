@@ -1,24 +1,20 @@
 #include <game.h>
 
-#define PI 3.14159265359
+#define PI                  3.14159265359f
+#define FOV                 (PI / 3)
+#define MOVE_SPEED          0.05f
+#define ROT_SPEED           0.001f
+#define DAMAGE_COOLDOWN_MS  1000
+#define SHOOT_ANGLE_TOL     0.1f
+#define SHOOT_MAX_DIST      10.0f
+#define ENEMY_SPRITE_SIZE   32
+#define FONT_SIZE           100
+#define INPUT_INTERVAL      697
 
-struct Game {
-    SDL_bool is_running;
-};
+static const int MAP_WIDTH  = 8;
+static const int MAP_HEIGHT = 8;
 
-const float FOV = (PI/3);
-float playerX;
-float playerY;
-float playerAngle;
-
-float enemyX;
-float enemyY;
-float enemyHealth;
-
-const int MAP_WIDTH = 8;
-const int MAP_HEIGHT = 8;
-
-const int map[8][8] = {
+static const int map[8][8] = {
     {1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 1, 1, 0, 0, 0, 1},
@@ -26,376 +22,471 @@ const int map[8][8] = {
     {1, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 0, 0, 0, 1, 0, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
-    {1, 1, 1, 1, 1, 1, 1, 1}
+    {1, 1, 1, 1, 1, 1, 1, 1},
 };
 
-SDL_Window* window = NULL;
-SDL_Renderer* renderer = NULL;
-SDL_Event e;
-SDL_Texture* gun = NULL;
-SDL_Texture* crosshair = NULL;
-SDL_Surface* gun_surface = NULL;
-SDL_Surface* screen = NULL;
-SDL_Surface* crosshair_s = NULL;
-SDL_Surface* health = NULL;
-SDL_Surface* ammo = NULL;
-SDL_Texture* h_t = NULL;
-SDL_Texture* a_t = NULL;
-SDL_Surface* enemy_surface = NULL;
-SDL_Texture* enemy_t = NULL;
-TTF_Font* arial = NULL;
+static const SDL_Color TEXT_COLOR = {0, 0, 0, 255};
 
-float wallDistances[SCREEN_WIDTH];
-int pHealth, pMaxHealth, pAmmo, pMaxAmmo;
 
-Uint32 lastDamageTime = 0;
+typedef struct {
+    float x, y, angle;
+    int   health, max_health;
+    int   ammo,   max_ammo;
+} Player;
 
-Game* game_create(void) {
-    Game* game = (Game*)malloc(sizeof(Game));
-    if(game) game->is_running = SDL_FALSE;
+typedef struct {
+    float x, y, health;
+} Enemy;
+
+typedef struct {
+    SDL_Texture *gun;
+    SDL_Texture *crosshair;
+    SDL_Texture *enemy;
+    TTF_Font    *font;
+    Mix_Music   *gun_ogg;
+} GameAssets;
+
+typedef struct {
+    SDL_Texture *health_tex;
+    SDL_Texture *ammo_tex;
+    int          last_health;
+    int          last_ammo;
+    char         hbuf[32];
+    char         abuf[32];
+} HUDState;
+
+struct Game {
+    SDL_bool      is_running;
+    SDL_Window   *window;
+    SDL_Renderer *renderer;
+    SDL_Event     event;
+    Player        player;
+    Enemy         enemy;
+    GameAssets    assets;
+    HUDState      hud;
+    float         wall_distances[SCREEN_WIDTH];
+    uint32_t      last_damage_time;
+    uint32_t      last_event_time;
+};
+
+static Mix_Music* loadMusic(const char* fileName) {
+    Mix_Music* m = NULL;
+    m = Mix_LoadMUS(fileName);
+    if(m == NULL) printf("Failed to load sound!\n");
+    return m;
+}
+
+static Mix_Chunk* loadSound(const char* fileName) {
+    Mix_Chunk* s = NULL;
+    s = Mix_LoadMUS(fileName);
+    if(s == NULL) printf("Failed to load sound!\n");
+    return s;
+}
+
+static int playMusic(Mix_Music* m) {
+    if(Mix_PlayingMusic() == 0) {
+        Mix_Volume(-1, 128);
+        Mix_PlayMusic(m, 0); 
+    }
+}
+
+static int playSound(Mix_Chunk* s) {
+    if(Mix_PlayingMusic() == 0) {
+        Mix_Volume(-1, 128);
+        Mix_PlayChannel(-1, s, 0);
+    }
+}
+
+static SDL_Texture *load_texture(SDL_Renderer *renderer, const char *path) {
+    SDL_Surface *surface = IMG_Load(path);
+    if (!surface) {
+        printf("Error loading image '%s': %s\n", path, IMG_GetError());
+        return NULL;
+    }
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    return tex;
+}
+
+static SDL_Texture *render_text(TTF_Font *font, const char *text) {
+    SDL_Surface *surface = TTF_RenderText_Solid(font, text, TEXT_COLOR);
+    if (!surface) {
+        printf("Error rendering text '%s': %s\n", text, TTF_GetError());
+        return NULL;
+    }
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(
+        SDL_GetRenderer(SDL_GetWindowFromID(1)), surface
+    );
+    SDL_FreeSurface(surface);
+    return tex;
+}
+
+static void update_hud_texture(SDL_Renderer *renderer, TTF_Font *font,
+                                SDL_Texture **tex, char *buf, size_t buf_size,
+                                const char *fmt, int value, int max_value,
+                                int *last_value)
+{
+    if (value == *last_value) return;
+
+    snprintf(buf, buf_size, fmt, value, max_value);
+    SDL_Surface *surface = TTF_RenderText_Solid(font, buf, TEXT_COLOR);
+    if (!surface) {
+        printf("Error rendering HUD text: %s\n", TTF_GetError());
+        return;
+    }
+    if (*tex) SDL_DestroyTexture(*tex);
+    *tex = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    *last_value = value;
+}
+
+static SDL_bool try_move(const Player *p, float dx, float dy) {
+    int nx = (int)(p->x + dx);
+    int ny = (int)(p->y + dy);
+    return map[ny][nx] != 1;
+}
+
+
+Game *game_create(void) {
+    Game *game = (Game *)calloc(1, sizeof(Game));
+    if (game) game->is_running = SDL_FALSE;
     return game;
 }
 
-void game_destroy(Game* game) {
-    if(game) free(game);
-    if(renderer) SDL_DestroyRenderer(renderer);
-    if(window) SDL_DestroyWindow(window);
-    if(gun_surface) SDL_FreeSurface(gun_surface);
-    if(arial) TTF_Quit();
-    if(gun) SDL_DestroyTexture(gun);
+void game_destroy(Game *game) {
+    if (!game) return;
+
+    if (game->assets.gun)       SDL_DestroyTexture(game->assets.gun);
+    if (game->assets.crosshair) SDL_DestroyTexture(game->assets.crosshair);
+    if (game->assets.enemy)     SDL_DestroyTexture(game->assets.enemy);
+    if (game->assets.font)      TTF_CloseFont(game->assets.font);
+    if (game->hud.health_tex)   SDL_DestroyTexture(game->hud.health_tex);
+    if (game->hud.ammo_tex)     SDL_DestroyTexture(game->hud.ammo_tex);
+    if (game->renderer)         SDL_DestroyRenderer(game->renderer);
+    if (game->window)           SDL_DestroyWindow(game->window);
+
+    TTF_Quit();
+    IMG_Quit();
+    Mix_Quit();
     SDL_Quit();
+
+    free(game);
 }
 
-void game_init(Game* game) {
-    if(!game) return;
-    
-    game->is_running = SDL_TRUE;
-    
-    if(SDL_Init(SDL_INIT_VIDEO) < 0) {
+void game_init(Game *game) {
+    if (!game) return;
+
+    (Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS,
+    2048) != 0) ?
+    printf("Error opening audio Channel\n") : (void)(0);
+
+                // 0xb00100000; 0xb00010000
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         printf("Error initialising SDL: %s\n", SDL_GetError());
-        game->is_running = SDL_FALSE;
+        return;
+    }
+    if((Mix_Init(MIX_INIT_OGG) & MIX_INIT_OGG) != MIX_INIT_OGG) {
+        printf("Error initialising MIXER: %s\n", Mix_GetError());
+    }
+    if (IMG_Init(IMG_INIT_PNG) < 0) {
+        printf("Error initialising IMG: %s\n", IMG_GetError());
+        return;
+    }
+    if (TTF_Init() != 0) {
+        printf("Error initialising TTF: %s\n", TTF_GetError());
         return;
     }
 
-    if(IMG_Init(IMG_INIT_PNG) < 0) {
-        printf("Error initalising IMG: %s\n", IMG_GetError());
-        game->is_running = SDL_FALSE;
-        return;
-    }
-
-    if(TTF_Init() != 0) {
-        printf("Error initialising TTF %s\n", TTF_GetError());
-        game->is_running = SDL_FALSE;
-        return;
-    }
-    
-    window = SDL_CreateWindow("Raja Royale 2027", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-    if(!window) {
+    game->window = SDL_CreateWindow(
+        "Steichnenwolf",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        WINDOW_WIDTH, WINDOW_HEIGHT,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
+    if (!game->window) {
         printf("Error creating window: %s\n", SDL_GetError());
-        game->is_running = SDL_FALSE;
         return;
     }
-    
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if(!renderer) {
+
+    game->renderer = SDL_CreateRenderer(game->window, -1, SDL_RENDERER_ACCELERATED);
+    if (!game->renderer) {
         printf("Error creating renderer: %s\n", SDL_GetError());
-        game->is_running = SDL_FALSE;
         return;
     }
 
-    SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
-
+    SDL_RenderSetLogicalSize(game->renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
-    playerX = 4.0f;
-    playerY = 4.0f;
-    playerAngle = 0;
+    game->assets.gun_ogg = loadMusic("util/gun.mp3");
 
-    enemyX = 1.5f;
-    enemyY = 1.5f;
-    enemyHealth = 10.0f;
+    game->player = (Player){
+        .x = 4.0f, .y = 4.0f, .angle = 0.0f * (180.0f/PI),
+        .health = 10, .max_health = 10,
+        .ammo   = 10, .max_ammo   = 10,
+    };
 
-    pMaxHealth = 10;
-    pHealth = 10;
-    
-    pMaxAmmo = 10;
-    pAmmo = 10;
+    game->enemy = (Enemy){.x = 1.5f, .y = 1.5f, .health = 10.0f};
 
-    enemy_surface = IMG_Load("util/enemy.png");
-    if(!enemy_surface) {
-        printf("Error loading enemy sprite: %s\n", IMG_GetError());
-    }
-    enemy_t = SDL_CreateTextureFromSurface(renderer, enemy_surface);
-    SDL_FreeSurface(enemy_surface);
-    enemy_surface = NULL;
+    game->assets.gun       = load_texture(game->renderer, "util/gun.png");
+    game->assets.crosshair = load_texture(game->renderer, "util/Crosshair.png");
+    game->assets.enemy     = load_texture(game->renderer, "util/enemy.png");
+    game->assets.font      = TTF_OpenFont("util/arial.ttf", FONT_SIZE);
 
-    gun_surface = IMG_Load("util/gun.png");
-    if(!gun_surface) {
-        printf("Error loading gun: %s\n", IMG_GetError());
-    }
-    gun = SDL_CreateTextureFromSurface(renderer, gun_surface);
-    SDL_FreeSurface(gun_surface);
-    gun_surface = NULL;
-
-    crosshair_s = IMG_Load("util/Crosshair.png");
-    if(!crosshair_s) {
-        printf("Error loading crosshair: %s\n", IMG_GetError());
-    }
-    crosshair = SDL_CreateTextureFromSurface(renderer, crosshair_s);
-    SDL_FreeSurface(crosshair_s);
-    crosshair_s = NULL;
-
-    arial = TTF_OpenFont("util/arial.ttf", 100);
-
-    if(!arial) {
-        printf("Error loading Font\n");
+    if (!game->assets.font) {
+        printf("Error loading font: %s\n", TTF_GetError());
         return;
-    }   
+    }
+
+    game->hud.last_health = -1;
+    game->hud.last_ammo   = -1;
+    update_hud_texture(game->renderer, game->assets.font,
+                       &game->hud.health_tex, game->hud.hbuf, sizeof(game->hud.hbuf),
+                       "Health: %d / 100",
+                       (game->player.health/game->player.max_health)*100, 0,
+                       &game->hud.last_health);
+    update_hud_texture(game->renderer, game->assets.font,
+                       &game->hud.ammo_tex, game->hud.abuf, sizeof(game->hud.abuf),
+                       "Ammo: %d / %d",
+                       game->player.ammo, game->player.max_ammo,
+                       &game->hud.last_ammo);
+
+    game->last_event_time = 0;
+
+    game->is_running = SDL_TRUE;
 }
 
-void game_update(Game* game) {
-    if(!game || !game->is_running) return;
 
-    SDL_Color tc = {.r = 0, .g = 0, .b = 0, .a = 255};
+static void handle_input(Game *game) {
+    Player *p = &game->player;
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
 
-    char hbuf[32], abuf[32];
-    snprintf(hbuf, sizeof(hbuf), "Health: %d / %d", pHealth, pMaxHealth);
-    snprintf(abuf, sizeof(abuf), "Ammo: %d / %d", pAmmo, pMaxAmmo);
-
-    SDL_Surface* hs = TTF_RenderText_Solid(arial, hbuf, tc);
-    fflush(stdout);
-    if(!hs) {
-        printf("Error loading health surface: %s\n", TTF_GetError());
-    } else {
-        if(h_t) SDL_DestroyTexture(h_t);
-        h_t = SDL_CreateTextureFromSurface(renderer, hs);
-        SDL_FreeSurface(hs);
+    if (keys[SDL_SCANCODE_W]) {
+        float dx = cos(p->angle) * MOVE_SPEED;
+        float dy = sin(p->angle) * MOVE_SPEED;
+        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
     }
-    SDL_Surface* as = TTF_RenderText_Solid(arial, abuf, tc);
-    fflush(stdout);
-    if(!as) {
-        printf("Error loading ammo surface: %s\n", TTF_GetError());
-    } else {
-        if(a_t) SDL_DestroyTexture(a_t);
-        a_t = SDL_CreateTextureFromSurface(renderer, as);
-        SDL_FreeSurface(as);
+    if (keys[SDL_SCANCODE_S]) {
+        float dx = -cos(p->angle) * MOVE_SPEED;
+        float dy = -sin(p->angle) * MOVE_SPEED;
+        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
     }
-    
-    const Uint8* keys = SDL_GetKeyboardState(NULL);
-    float moveSpeed = 0.05;
-    float rotSpeed = 0.03;
-    
-    if(keys[SDL_SCANCODE_W]) {
-        if(map[(int)(playerY + sin(playerAngle) * moveSpeed)][(int)(playerX + cos(playerAngle) * moveSpeed)] != 1 && playerX + cos(playerAngle) * moveSpeed != enemyX && playerY + sin(playerAngle) * moveSpeed != enemyY) {
-            playerX += cos(playerAngle) * moveSpeed;
-            playerY += sin(playerAngle) * moveSpeed;
-        }
+    if (keys[SDL_SCANCODE_A]) {
+        float dx = cos(p->angle - PI / 2.0f) * MOVE_SPEED;
+        float dy = sin(p->angle - PI / 2.0f) * MOVE_SPEED;
+        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
     }
-    if(keys[SDL_SCANCODE_S]) {
-        if(map[(int)(playerY - sin(playerAngle) * moveSpeed)][(int)(playerX - cos(playerAngle) * moveSpeed)] != 1 && playerX - cos(playerAngle) * moveSpeed != enemyX && playerY - sin(playerAngle) * moveSpeed != enemyY) {
-            playerX -= cos(playerAngle) * moveSpeed;
-            playerY -= sin(playerAngle) * moveSpeed;
-        }
-    }
-    
-    if(keys[SDL_SCANCODE_A]) {
-    if(map[(int)(playerY + sin(playerAngle - PI/2) * moveSpeed)][(int)(playerX + cos(playerAngle - PI/2) * moveSpeed)] != 1) {
-        playerX += cos(playerAngle - PI/2) * moveSpeed;
-        playerY += sin(playerAngle - PI/2) * moveSpeed;
-    }
-    }
-    if(keys[SDL_SCANCODE_D]) {
-        if(map[(int)(playerY + sin(playerAngle + PI/2) * moveSpeed)][(int)(playerX + cos(playerAngle + PI/2) * moveSpeed)] != 1) {
-            playerX += cos(playerAngle + PI/2) * moveSpeed;
-            playerY += sin(playerAngle + PI/2) * moveSpeed;
-        }
+    if (keys[SDL_SCANCODE_D]) {
+        float dx = cos(p->angle + PI / 2.0f) * MOVE_SPEED;
+        float dy = sin(p->angle + PI / 2.0f) * MOVE_SPEED;
+        if (try_move(p, dx, dy)) { p->x += dx; p->y += dy; }
     }
 
-    if(keys[SDL_SCANCODE_R] && pAmmo < pMaxAmmo) {
-        printf("Reloading gun.\n");
-        SDL_Delay(150);
-        printf("Reloading gun..\n");
-        SDL_Delay(150);
-        printf("Reloading gun...\n");
-        pAmmo = pMaxAmmo;
-        printf("Reloaded Gun!\n");
+    if (keys[SDL_SCANCODE_R] && p->ammo < p->max_ammo) {
+        p->ammo = p->max_ammo;
     }
 
-    if(keys[SDL_SCANCODE_F] && pHealth < pMaxHealth) {
-        pHealth = pMaxHealth;
+    if (keys[SDL_SCANCODE_F] && p->health < p->max_health) {
+        p->health = p->max_health;
         printf("Used medkit!\n");
     }
+}
 
-    float dx = enemyX - playerX;
-    float dy = enemyY - playerY;
+static void handle_events(Game *game, float enemy_angle, float enemy_distance) {
+    Player *p = &game->player;
+    Enemy  *e = &game->enemy;
 
-    float enemy_distance = sqrt(dx*dx + dy*dy);
-    float enemyAngle = atan2(dy, dx) - playerAngle;
+    while (SDL_PollEvent(&game->event)) {
+        SDL_Event *ev = &game->event;
 
-    while(enemyAngle > PI) enemyAngle -= 2*PI;
-    while(enemyAngle < -PI) enemyAngle += 2*PI;
-        
-    while(SDL_PollEvent(&e)) {
-        if(e.type == SDL_QUIT) game->is_running = SDL_FALSE;
-        if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) game->is_running = SDL_FALSE;
-        if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_e && SDL_GetRelativeMouseMode() == SDL_FALSE) {
-            SDL_SetRelativeMouseMode(SDL_TRUE);
-        } else if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_e && SDL_GetRelativeMouseMode() == SDL_TRUE)
-            SDL_SetRelativeMouseMode(SDL_FALSE);
-        if(e.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
-            playerAngle += e.motion.xrel * 0.001f;
+        if (ev->type == SDL_QUIT) {
+            game->is_running = SDL_FALSE;
         }
-        if(e.type == SDL_MOUSEBUTTONDOWN && pAmmo > 0) {
-            pAmmo--;
-            if(fabs(enemyAngle) < 0.1f && enemy_distance < 10.0f && enemy_distance < wallDistances[SCREEN_WIDTH/2]) {
-                enemyHealth -= 1.0f;
-                printf("Hit Enemy! Enemy health: %.0f\n", enemyHealth);
-                if(enemyHealth <= 0) {
-                    enemyX = -999.0f;
-                    enemyY = -999.0f;
-                    printf("Enemy dead!\n");
+
+        if (ev->type == SDL_KEYDOWN) {
+            switch (ev->key.keysym.sym) {
+                case SDLK_ESCAPE:
+                    game->is_running = SDL_FALSE;
+                    break;
+                case SDLK_e:
+                    SDL_SetRelativeMouseMode(!SDL_GetRelativeMouseMode());
+                    break;
+                default: break;
+            }
+        }
+
+        if (ev->type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
+            p->angle += ev->motion.xrel * ROT_SPEED;
+        }
+
+        if (ev->type == SDL_MOUSEBUTTONDOWN && p->ammo > 0) {
+            uint32_t curr_time = SDL_GetTicks();
+            if(curr_time - game->last_damage_time >= INPUT_INTERVAL) {
+                playMusic(game->assets.gun_ogg);
+                p->ammo--;
+                SDL_bool on_target = fabs(enemy_angle) < SHOOT_ANGLE_TOL
+                                && enemy_distance     < SHOOT_MAX_DIST
+                                && enemy_distance     < game->wall_distances[SCREEN_WIDTH / 2];
+                if (on_target) {
+                    e->health -= 1.0f;
+                    printf("Hit enemy! Health: %.0f\n", e->health);             
+                    if (e->health <= 0.0f) {
+                        e->x = -999.0f;
+                        e->y = -999.0f;
+                        printf("Enemy dead!\n");
+                    }
                 }
+                game->last_damage_time = curr_time;
             }
         }
-    }
-    
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-    
-    SDL_SetRenderDrawColor(renderer, 100, 150, 200, 255);
-    SDL_Rect ceiling = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2};
-    SDL_RenderFillRect(renderer, &ceiling);
-
-    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
-    SDL_Rect floor = {0, SCREEN_HEIGHT / 2, SCREEN_WIDTH, SCREEN_HEIGHT / 2};
-    SDL_RenderFillRect(renderer, &floor);
-    
-    for(int x = 0; x < SCREEN_WIDTH; x++) {
-        float ray_angle = (playerAngle - FOV/2) + ((float)x / SCREEN_WIDTH) * FOV;
-        
-        float ray_dir_x= cos(ray_angle);
-        float ray_dir_y = sin(ray_angle);
-        
-        int mapX = (int)playerX;
-        int mapY = (int)playerY;
-        
-        float delta_dist_x = fabs(1.0f / ray_dir_x);
-        float delta_dist_y = fabs(1.0f / ray_dir_y);
-        
-        float side_dist_x, side_dist_y;
-        int step_x, step_y;
-        
-        if(ray_dir_x < 0) {
-            step_x = -1;
-            side_dist_x = (playerX - mapX) * delta_dist_x;
-        } else {
-            step_x = 1;
-            side_dist_x = (mapX + 1.0f - playerX) * delta_dist_x;
-        }
-        
-        if(ray_dir_y < 0) {
-            step_y = -1;
-            side_dist_y = (playerY - mapY) * delta_dist_y;
-        } else {
-            step_y = 1;
-            side_dist_y = (mapY + 1.0f - playerY) * delta_dist_y;
-        }
-        
-        int hit = 0;
-        int side = 0;
-        
-        while(hit == 0) {
-            if(side_dist_x < side_dist_y) {
-                side_dist_x += delta_dist_x;
-                mapX += step_x;
-                side = 0;
-            } else {
-                side_dist_y += delta_dist_y;
-                mapY += step_y;
-                side = 1;
-            }
-            if(mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) {
-                hit = 1;
-                break;
-            }
-            
-            if(map[mapY][mapX] == 1) hit = 1;
-        }
-        
-        float distance;
-        if(side == 0) distance = (side_dist_x - delta_dist_x);
-        else distance = (side_dist_y - delta_dist_y);
-        
-        distance = distance * cos(ray_angle - playerAngle);
-        wallDistances[x] = distance;
-        
-        int wallHeight = (int)(SCREEN_HEIGHT / distance);
-        int drawStart = (SCREEN_HEIGHT - wallHeight) / 2;
-        if(drawStart < 0) drawStart = 0;
-        int drawEnd = drawStart + wallHeight;
-        if(drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
-        
-        int shade = 255 - (int)(distance * 50);
-        if(shade < 0) shade = 0;
-        if(side == 1) shade = shade * 0.7;
-        
-        SDL_SetRenderDrawColor(renderer, shade, shade / 3, shade / 3, 255);
-        SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
-    }
-
-
-    if(fabs(enemyAngle) < FOV / 2 && enemy_distance > 0.1f) {
-        int enemyScreenX = (int)((enemyAngle + FOV/2) / FOV * SCREEN_WIDTH);
-        int enemyHeight = (int)(SCREEN_HEIGHT / enemy_distance);
-        int drawStart = (SCREEN_HEIGHT - enemyHeight) / 2;
-        if(drawStart < 0) drawStart = 0;
-        int drawEnd = drawStart + enemyHeight;
-        if(drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
-        int enemyWidth = enemyHeight;
-
-        for(int col = enemyScreenX - enemyWidth/2; col < enemyScreenX + enemyWidth/2; col++) {
-            if(col < 0 || col >= SCREEN_WIDTH) continue;
-            if(enemy_distance >= wallDistances[col]) continue;
-
-            int texCol = (col - (enemyScreenX - enemyWidth/2)) * 32 / enemyWidth;
-
-            SDL_Rect srcRect = {texCol, 0, 1, 32};
-            SDL_Rect dstRect = {col, drawStart, 1, drawEnd - drawStart};
-            SDL_RenderCopy(renderer, enemy_t, &srcRect, &dstRect);
-        }
-
-    }
-
-    if(enemy_distance < 1.5f) {
-        Uint32 now = SDL_GetTicks();
-        if(now - lastDamageTime > 1000) {
-            pHealth -= 1;
-            lastDamageTime = now;
-            if(pHealth <= 0) {
-                printf("You died\n");
-                pHealth = pMaxHealth;
-            }
     }
 }
 
-    SDL_Rect gunRect = {SCREEN_WIDTH - 384, SCREEN_HEIGHT - 384, 384, 384};
-    SDL_RenderCopy(renderer, gun, NULL, &gunRect);
+static void render_scene(Game *game) {
+    SDL_Renderer *r = game->renderer;
+    Player *p = &game->player;
 
-    SDL_Rect crosshairRect = {SCREEN_WIDTH / 2 - 16, SCREEN_HEIGHT / 2 - 16, 32, 32};
-    SDL_RenderCopy(renderer, crosshair, NULL, &crosshairRect);
+    SDL_SetRenderDrawColor(r, 100, 150, 200, 255);
+    SDL_Rect ceiling = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2};
+    SDL_RenderFillRect(r, &ceiling);
 
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_Rect healthRect = {10, SCREEN_HEIGHT - 100, 100, 100};
-    SDL_RenderCopy(renderer, h_t, NULL, &healthRect);
+    SDL_SetRenderDrawColor(r, 50, 50, 50, 255);
+    SDL_Rect floor = {0, SCREEN_HEIGHT / 2, SCREEN_WIDTH, SCREEN_HEIGHT / 2};
+    SDL_RenderFillRect(r, &floor);
 
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_Rect ammoRect = {10, SCREEN_HEIGHT - 200, 100, 100};
-    SDL_RenderCopy(renderer, a_t, NULL, &ammoRect);    
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+        float ray_angle = (p->angle - FOV / 2.0f) + ((float)x / SCREEN_WIDTH) * FOV;
+        float ray_dx = cos(ray_angle);
+        float ray_dy = sin(ray_angle);
 
-    SDL_RenderPresent(renderer);    
+        int map_x = (int)p->x;
+        int map_y = (int)p->y;
+
+        float delta_x = fabs(1.0f / ray_dx);
+        float delta_y = fabs(1.0f / ray_dy);
+
+        float side_x, side_y;
+        int step_x, step_y;
+
+        if (ray_dx < 0) { step_x = -1; side_x = (p->x - map_x) * delta_x; }
+        else            { step_x =  1; side_x = (map_x + 1.0f - p->x) * delta_x; }
+
+        if (ray_dy < 0) { step_y = -1; side_y = (p->y - map_y) * delta_y; }
+        else            { step_y =  1; side_y = (map_y + 1.0f - p->y) * delta_y; }
+
+        int hit = 0, side = 0;
+        while (!hit) {
+            if (side_x < side_y) { side_x += delta_x; map_x += step_x; side = 0; }
+            else                  { side_y += delta_y; map_y += step_y; side = 1; }
+
+            if (map_x < 0 || map_x >= MAP_WIDTH || map_y < 0 || map_y >= MAP_HEIGHT) break;
+            if (map[map_y][map_x] == 1) hit = 1;
+        }
+
+        float distance = (side == 0)
+            ? (side_x - delta_x) * cos(ray_angle - p->angle)
+            : (side_y - delta_y) * cos(ray_angle - p->angle);
+
+        game->wall_distances[x] = distance;
+
+        int wall_height = (int)(SCREEN_HEIGHT / distance);
+        int draw_start  = SDL_max((SCREEN_HEIGHT - wall_height) / 2, 0);
+        int draw_end    = SDL_min(draw_start + wall_height, SCREEN_HEIGHT - 1);
+
+        int shade = SDL_max(0, 255 - (int)(distance * 50));
+        if (side == 1) shade = (int)(shade * 0.7f);
+
+        SDL_SetRenderDrawColor(r, shade, shade / 3, shade / 3, 255);
+        SDL_RenderDrawLine(r, x, draw_start, x, draw_end);
+    }
+}
+
+static void render_enemy(Game *game, float enemy_angle, float enemy_distance) {
+    if (fabs(enemy_angle) >= FOV / 2.0f || enemy_distance <= 0.1f) return;
+
+    int screen_x    = (int)((enemy_angle + FOV / 2.0f) / FOV * SCREEN_WIDTH);
+    int enemy_height = (int)(SCREEN_HEIGHT / enemy_distance);
+    int draw_start  = SDL_max((SCREEN_HEIGHT - enemy_height) / 2, 0);
+    int draw_end    = SDL_min(draw_start + enemy_height, SCREEN_HEIGHT - 1);
+    int enemy_width = enemy_height;
+
+    for (int col = screen_x - enemy_width / 2; col < screen_x + enemy_width / 2; col++) {
+        if (col < 0 || col >= SCREEN_WIDTH) continue;
+        if (enemy_distance >= game->wall_distances[col]) continue;
+
+        int tex_col = (col - (screen_x - enemy_width / 2)) * ENEMY_SPRITE_SIZE / enemy_width;
+        SDL_Rect src = {tex_col, 0, 1, ENEMY_SPRITE_SIZE};
+        SDL_Rect dst = {col, draw_start, 1, draw_end - draw_start};
+        SDL_RenderCopy(game->renderer, game->assets.enemy, &src, &dst);
+    }
+}
+
+static void render_hud(Game *game) {
+    SDL_Renderer *r = game->renderer;
+    Player *p = &game->player;
+
+    SDL_Rect gun_rect = {SCREEN_WIDTH - 384, SCREEN_HEIGHT - 384, 384, 384};
+    SDL_RenderCopy(r, game->assets.gun, NULL, &gun_rect);
+
+    SDL_Rect xhair_rect = {SCREEN_WIDTH / 2 - 16, SCREEN_HEIGHT / 2 - 16, 32, 32};
+    SDL_RenderCopy(r, game->assets.crosshair, NULL, &xhair_rect);
+
+    update_hud_texture(r, game->assets.font,
+                       &game->hud.health_tex, game->hud.hbuf, sizeof(game->hud.hbuf),
+                       "Health: %d / 100", p->health, p->max_health,
+                       &game->hud.last_health);
+    update_hud_texture(r, game->assets.font,
+                       &game->hud.ammo_tex, game->hud.abuf, sizeof(game->hud.abuf),
+                       "Ammo: %d / %d", p->ammo, p->max_ammo,
+                       &game->hud.last_ammo);
+
+    SDL_Rect health_rect = {10, SCREEN_HEIGHT - 100, 100, 100};
+    SDL_RenderCopy(r, game->hud.health_tex, NULL, &health_rect);
+
+    SDL_Rect ammo_rect = {10, SCREEN_HEIGHT - 200, 100, 100};
+    SDL_RenderCopy(r, game->hud.ammo_tex, NULL, &ammo_rect);
+}
+
+
+void game_update(Game *game) {
+    if (!game || !game->is_running) return;
+
+    Player *p = &game->player;
+    Enemy  *e = &game->enemy;
+
+    float dx = e->x - p->x;
+    float dy = e->y - p->y;
+    float enemy_distance = sqrtf(dx * dx + dy * dy);
+    float enemy_angle    = atan2f(dy, dx) - p->angle;
+
+    while (enemy_angle >  PI) enemy_angle -= 2.0f * PI;
+    while (enemy_angle < -PI) enemy_angle += 2.0f * PI;
+
+    handle_input(game);
+    handle_events(game, enemy_angle, enemy_distance);
+
+    if (enemy_distance < 1.5f) {
+        uint32_t now = SDL_GetTicks();
+        if (now - game->last_damage_time > DAMAGE_COOLDOWN_MS) {
+            p->health--;
+            game->last_damage_time = now;
+            if (p->health <= 0) {
+                printf("You died!\n");
+                p->health = p->max_health;
+            }
+        }
+    }
+
+    SDL_SetRenderDrawColor(game->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(game->renderer);
+
+    render_scene(game);
+    render_enemy(game, enemy_angle, enemy_distance);
+    render_hud(game);
+
+    SDL_RenderPresent(game->renderer);
     SDL_Delay(16);
 }
 
-SDL_bool game_is_running(Game* game) {
+SDL_bool game_is_running(Game *game) {
     return game && game->is_running;
 }
